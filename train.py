@@ -4,21 +4,21 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 from utils import *
-from myloss import DiceLoss
-from eval import eval_net
 from unet import UNet
 from torch.autograd import Variable
 from torch import optim
 from optparse import OptionParser
 import sys
 import os
+import pdb
 
+COLOR = "color"
 
 def train_net(net, epochs=5, batch_size=2, lr=0.1, val_percent=0.05,
               cp=True, gpu=False):
-    dir_img = 'data/train/'
-    dir_mask = 'data/train_masks/'
-    dir_checkpoint = 'checkpoints/'
+    dir_img = '/data/unagi0/kanayama/dataset/nuclei_images/stage1_train_preprocessed_' + COLOR + '/images/'
+    dir_mask = '/data/unagi0/kanayama/dataset/nuclei_images/stage1_train_preprocessed/masks/'
+    dir_checkpoint = '/data/unagi0/kanayama/dataset/nuclei_images/checkpoints/'
 
     ids = get_ids(dir_img)
     ids = split_ids(ids)
@@ -39,8 +39,8 @@ def train_net(net, epochs=5, batch_size=2, lr=0.1, val_percent=0.05,
 
     N_train = len(iddataset['train'])
 
-    train = get_imgs_and_masks(iddataset['train'], dir_img, dir_mask)
-    val = get_imgs_and_masks(iddataset['val'], dir_img, dir_mask)
+    #train = get_imgs_and_masks(iddataset['train'], dir_img, dir_mask)
+    #val = get_imgs_and_masks(iddataset['val'], dir_img, dir_mask)
 
     optimizer = optim.SGD(net.parameters(),
                           lr=lr, momentum=0.9, weight_decay=0.0005)
@@ -50,23 +50,21 @@ def train_net(net, epochs=5, batch_size=2, lr=0.1, val_percent=0.05,
         print('Starting epoch {}/{}.'.format(epoch+1, epochs))
         train = get_imgs_and_masks(iddataset['train'], dir_img, dir_mask)
         val = get_imgs_and_masks(iddataset['val'], dir_img, dir_mask)
-
         epoch_loss = 0
 
-        if 1:
-            val_dice = eval_net(net, val, gpu)
-            print('Validation Dice Coeff: {}'.format(val_dice))
-
         for i, b in enumerate(batch(train, batch_size)):
-            X = np.array([i[0] for i in b])
+            X = np.array([i[0] for i in b])[:, :3, :, :] #alpha channelを取り除く
             y = np.array([i[1] for i in b])
 
             X = torch.FloatTensor(X)
             y = torch.ByteTensor(y)
 
             if gpu:
-                X = Variable(X).cuda()
-                y = Variable(y).cuda()
+                X = X.cuda()
+                y = y.cuda()
+
+                X = Variable(X)
+                y = Variable(y)
             else:
                 X = Variable(X)
                 y = Variable(y)
@@ -74,26 +72,22 @@ def train_net(net, epochs=5, batch_size=2, lr=0.1, val_percent=0.05,
             y_pred = net(X)
             probs = F.sigmoid(y_pred)
             probs_flat = probs.view(-1)
-
             y_flat = y.view(-1)
-
-            loss = criterion(probs_flat, y_flat.float())
+            loss = criterion(probs_flat, y_flat.float() / 255.)
             epoch_loss += loss.data[0]
 
             print('{0:.4f} --- loss: {1:.6f}'.format(i*batch_size/N_train,
                                                      loss.data[0]))
 
             optimizer.zero_grad()
-
             loss.backward()
-
             optimizer.step()
 
         print('Epoch finished ! Loss: {}'.format(epoch_loss/i))
 
         if cp:
             torch.save(net.state_dict(),
-                       dir_checkpoint + 'CP{}.pth'.format(epoch+1))
+                       dir_checkpoint + COLOR + '_CP{}.pth'.format(epoch+1))
 
             print('Checkpoint {} saved !'.format(epoch+1))
 
@@ -121,15 +115,6 @@ if __name__ == '__main__':
 
     if options.gpu:
         net.cuda()
-        cudnn.benchmark = True
 
-    try:
-        train_net(net, options.epochs, options.batchsize, options.lr,
-                  gpu=options.gpu)
-    except KeyboardInterrupt:
-        torch.save(net.state_dict(), 'INTERRUPTED.pth')
-        print('Saved interrupt')
-        try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(0)
+    train_net(net, options.epochs, options.batchsize, options.lr,
+              gpu=options.gpu)

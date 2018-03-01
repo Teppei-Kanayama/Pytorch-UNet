@@ -18,7 +18,7 @@ def dense_crf(img, output_probs):
     d.setUnaryEnergy(U)
 
     d.addPairwiseGaussian(sxy=20, compat=3)
-    d.addPairwiseBilateral(sxy=30, srgb=20, rgbim=img, compat=10)
+    #d.addPairwiseBilateral(sxy=30, srgb=20, rgbim=img, compat=10)
 
     Q = d.inference(5)
     Q = np.argmax(np.array(Q), axis=0).reshape((h, w))
